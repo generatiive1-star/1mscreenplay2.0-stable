@@ -1724,6 +1724,13 @@ function exportToPDF() {
             const lineDiv = document.createElement('div');
             lineDiv.className = 'sp-line';
             
+            // Apply inline styles to cloned PDF DOM for layout safety
+            lineDiv.style.height = "auto";
+            lineDiv.style.minHeight = "auto";
+            lineDiv.style.maxHeight = "none";
+            lineDiv.style.overflow = "visible";
+            lineDiv.style.lineHeight = "1.5";
+            
             if (lineData.type !== 'empty') {
                 lineDiv.classList.add(`sp-line-${lineData.type}`);
                 if (lineData.elementId) {

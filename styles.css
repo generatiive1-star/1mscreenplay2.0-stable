@@ -1033,8 +1033,10 @@ kbd {
     
     .sp-line {
         width: 100% !important;
-        min-height: 0.20in !important;
-        line-height: 0.20in !important;
+        height: auto !important;
+        min-height: auto !important;
+        max-height: none !important;
+        line-height: 1.5 !important;
         color: #000000 !important;
         font-size: 12pt !important;
         font-family: var(--font-script) !important;
@@ -1046,6 +1048,7 @@ kbd {
         word-wrap: break-word !important;
         overflow-wrap: break-word !important;
         overflow: visible !important;
+        word-break: break-word !important;
     }
 
     .sp-line-main-term {
@@ -1061,6 +1064,13 @@ kbd {
         font-weight: normal !important;
         font-size: 12pt !important;
         color: #000000 !important;
+    }
+
+    .sp-line-user-text {
+        height: auto !important;
+        min-height: auto !important;
+        line-height: 1.5 !important;
+        overflow: visible !important;
     }
 
     .sp-line-empty {
@@ -1106,6 +1116,34 @@ kbd {
         font-size: 18px !important;
         font-weight: 500 !important;
     }
+
+    .text-title,
+    .text-subtitle,
+    .text-heading,
+    .text-subheading,
+    .text-section,
+    .text-subsection {
+        line-height: 1.3 !important;
+    }
+
+    .sp-line + .sp-line {
+        margin-top: 4px !important;
+    }
+
+    .sp-line br {
+        display: block;
+        content: "";
+        margin-top: 2px;
+    }
+
+    #print-container,
+    .pdf-page {
+        height: auto !important;
+        min-height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
     .sp-line:has(.text-title),
     .sp-line:has(.text-subtitle),
     .sp-line:has(.text-heading),

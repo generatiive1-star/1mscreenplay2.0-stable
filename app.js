@@ -1242,7 +1242,95 @@ function updateSceneTime(currentText, newTime) {
     return currentText + " " + newTime;
 }
 
+function insertHtmlAtRange(range, html) {
+    range.deleteContents();
+    const el = document.createElement("div");
+    el.innerHTML = html;
+    const fragment = document.createDocumentFragment();
+    let node;
+    let lastNode;
+    while ((node = el.firstChild)) {
+        lastNode = fragment.appendChild(node);
+    }
+    range.insertNode(fragment);
+    
+    const newRange = document.createRange();
+    if (lastNode) {
+        newRange.setStartAfter(lastNode);
+        newRange.collapse(true);
+    } else {
+        newRange.selectNodeContents(range.startContainer);
+        newRange.collapse(false);
+    }
+    return newRange;
+}
+
 function insertSubterm(elementId, term) {
+    // Intercept shot clicks to insert camera system printable elements at the cursor
+    if (elementId === 'shot') {
+        let category = "Camera Shots";
+        let itemText = term;
+        if (term.includes(': ')) {
+            const parts = term.split(': ');
+            category = parts[0];
+            itemText = parts[1];
+        }
+        
+        const categoryMap = {
+            "Camera Shots": "Camera Shot",
+            "Camera Angles": "Camera Angle",
+            "Camera Movements": "Camera Movement",
+            "Special Cinematic Shots": "Special Cinematic Shot"
+        };
+        const label = categoryMap[category] || "Camera Shot";
+        const htmlToInsert = `${label}:<br>${itemText}<br><br>`;
+        
+        let lineIdx = State.activeLineIndex !== undefined ? State.activeLineIndex : findFirstEmptyLine();
+        let lineDiv = editor.querySelector(`[data-line-index="${lineIdx}"]`);
+        let range = null;
+        
+        if (lastEditorSelection) {
+            const selLineDiv = editor.querySelector(`[data-line-index="${lastEditorSelection.lineIndex}"]`);
+            if (selLineDiv && editor.contains(selLineDiv) && selLineDiv.contains(lastEditorSelection.range.startContainer)) {
+                lineDiv = selLineDiv;
+                range = lastEditorSelection.range;
+                lineIdx = lastEditorSelection.lineIndex;
+            }
+        }
+        
+        if (lineDiv) {
+            if (!range) {
+                range = document.createRange();
+                range.selectNodeContents(lineDiv);
+                range.collapse(false); // caret at the end
+            }
+            
+            // Remove empty styles
+            lineDiv.classList.remove('sp-line-empty');
+            lineDiv.classList.add('sp-line-user-text');
+            
+            // Insert HTML
+            const newRange = insertHtmlAtRange(range, htmlToInsert);
+            
+            // Focus and restore range
+            lineDiv.focus();
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+            
+            // Update last selection
+            lastEditorSelection = {
+                range: newRange.cloneRange(),
+                lineIndex: lineIdx
+            };
+            
+            // Save state
+            saveActivePageDOM();
+            State.saveToHistory();
+        }
+        return;
+    }
+
     let lineIdx = State.activeLineIndex !== undefined ? State.activeLineIndex : findFirstEmptyLine();
     const pageData = State.pages[State.currentPageIndex];
     
@@ -1794,27 +1882,38 @@ function resetZoom() {
 // =========================================================================
 
 let lastActiveRange = null;
+let lastEditorSelection = null;
 
 // Track active selection range inside screenplay editor
 document.addEventListener('selectionchange', () => {
     const sel = window.getSelection();
     if (sel.rangeCount > 0) {
         const range = sel.getRangeAt(0);
+        let container = range.commonAncestorContainer;
+        if (container.nodeType !== Node.ELEMENT_NODE) {
+            container = container.parentElement;
+        }
+        
+        let startNode = range.startContainer;
+        if (startNode.nodeType !== Node.ELEMENT_NODE) {
+            startNode = startNode.parentElement;
+        }
+        const editorLine = startNode ? startNode.closest('.sp-line') : null;
+        if (editorLine && editorLine.closest('#screenplay-editor')) {
+            const lineIdx = parseInt(editorLine.getAttribute('data-line-index'), 10);
+            lastEditorSelection = {
+                range: range.cloneRange(),
+                lineIndex: lineIdx
+            };
+        }
+
         if (!range.collapsed) {
-            let container = range.commonAncestorContainer;
-            if (container.nodeType !== Node.ELEMENT_NODE) {
-                container = container.parentElement;
-            }
             if (container && container.closest('#screenplay-editor')) {
                 lastActiveRange = range.cloneRange();
             }
         }
         
         // Update the dropdown value to match styling at the caret/selection
-        let container = range.commonAncestorContainer;
-        if (container.nodeType !== Node.ELEMENT_NODE) {
-            container = container.parentElement;
-        }
         if (container && container.closest('#screenplay-editor')) {
             updateStyleDropdownVal();
         }
@@ -1924,6 +2023,6 @@ function applyTextStyle(styleName) {
 // Helper to strip HTML tags
 function stripHtml(html) {
     const tmp = document.createElement("DIV");
-    tmp.innerHTML = html;
+    tmp.innerHTML = html.replace(/<br\s*\/?>/gi, '\n');
     return tmp.textContent || tmp.innerText || "";
 }

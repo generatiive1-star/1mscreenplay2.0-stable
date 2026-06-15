@@ -1021,6 +1021,13 @@ kbd {
         flex-direction: column !important;
     }
     
+    #print-container .page-container {
+        height: auto !important;
+        min-height: var(--page-height) !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+    
     .screenplay-page {
         flex: 1 !important;
         font-family: var(--font-script) !important;

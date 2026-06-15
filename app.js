@@ -2,6 +2,14 @@
  * 1M SCREENPLAY 2.0 - Core Application Logic
  */
 
+const USE_FIXED_35_LINE_MODE = false;
+const MAX_LINES_PER_PAGE = 35;
+const USE_FIXED_35_LINE_PDF_EXPORT = false;
+const PDF_MAX_LINES_PER_PAGE = 35;
+const USE_PDF_MIRROR_EXPORT = true;
+const USE_DEDICATED_PDF_ENGINE = true;
+let flatLines = [];
+
 // Define Screenplay Elements structure
 const SCREENPLAY_ELEMENTS = [
     {
@@ -156,6 +164,64 @@ function createEmptyPage() {
     return lines;
 }
 
+function initializeFlatLines() {
+    flatLines = [];
+    State.pages.forEach(page => {
+        page.forEach(line => {
+            flatLines.push({
+                text: line.text || "",
+                type: line.type || "empty",
+                elementId: line.elementId || ""
+            });
+        });
+    });
+}
+
+function syncFlatLinesToStatePages() {
+    const pages = [];
+    for (let i = 0; i < flatLines.length; i += 50) {
+        const chunk = flatLines.slice(i, i + 50);
+        while (chunk.length < 50) {
+            chunk.push({ text: "", type: "empty", elementId: "" });
+        }
+        pages.push(chunk);
+    }
+    if (pages.length === 0) {
+        pages.push(createEmptyPage());
+    }
+    State.pages = pages;
+}
+
+function getPaginatedPages() {
+    const pages = [];
+    let lastNonEmptyIdx = -1;
+    for (let i = flatLines.length - 1; i >= 0; i--) {
+        if (flatLines[i] && flatLines[i].type !== 'empty') {
+            lastNonEmptyIdx = i;
+            break;
+        }
+    }
+    
+    const limit = Math.max(35, lastNonEmptyIdx + 1);
+    
+    for (let i = 0; i < limit; i += 35) {
+        const chunk = flatLines.slice(i, i + 35);
+        while (chunk.length < 35) {
+            chunk.push({ text: "", type: "empty", elementId: "" });
+        }
+        pages.push(chunk);
+    }
+    
+    if (pages.length === 0) {
+        pages.push(Array.from({ length: 35 }, () => ({ text: "", type: "empty", elementId: "" })));
+    }
+    return pages;
+}
+
+function getMaxLineIndex() {
+    return USE_FIXED_35_LINE_MODE ? 34 : 49;
+}
+
 // App State Management
 const State = {
     projectName: "Untitled Screenplay",
@@ -221,6 +287,9 @@ const State = {
         const state = this.historyStack[this.historyIndex];
         this.projectName = state.projectName;
         this.pages = state.pages.map(page => page.map(line => ({...line})));
+        if (USE_FIXED_35_LINE_MODE) {
+            initializeFlatLines();
+        }
         this.currentPageIndex = state.currentPageIndex;
         this.activeLineIndex = state.activeLineIndex;
         
@@ -285,6 +354,10 @@ document.addEventListener('DOMContentLoaded', () => {
     renderRecentProjectsMenu();
     
     initZoom();
+    
+    if (USE_FIXED_35_LINE_MODE) {
+        initializeFlatLines();
+    }
     
     // Save initial state to history stack
     State.saveToHistory();
@@ -389,6 +462,9 @@ function loadProject(name) {
         const data = JSON.parse(rawData);
         State.projectName = data.projectName;
         State.pages = data.pages || [createEmptyPage()];
+        if (USE_FIXED_35_LINE_MODE) {
+            initializeFlatLines();
+        }
         State.currentPageIndex = data.currentPageIndex || 0;
         State.activeLineIndex = data.activeLineIndex !== undefined ? data.activeLineIndex : 0;
         State.favorites = data.favorites || [];
@@ -420,25 +496,52 @@ function showSaveStatus(text) {
 
 // Read the page lines from DOM and update State.pages array
 function saveActivePageDOM() {
-    const pageData = State.pages[State.currentPageIndex];
-    if (!pageData) return;
-    const lineDivs = editor.querySelectorAll('.sp-line');
-    lineDivs.forEach((div, idx) => {
-        if (idx < 50) {
+    if (USE_FIXED_35_LINE_MODE) {
+        const lineDivs = editor.querySelectorAll('.sp-line');
+        lineDivs.forEach((div) => {
+            const flatIdxAttr = div.getAttribute('data-flat-line-index');
+            if (flatIdxAttr === null) return;
+            const flatLineIdx = parseInt(flatIdxAttr, 10);
+            
+            while (flatLines.length <= flatLineIdx) {
+                flatLines.push({ text: "", type: "empty", elementId: "" });
+            }
+            
             const html = div.innerHTML.replace(/\n$/, ''); // Strip contenteditable trailing newline
             const text = div.innerText.replace(/\n$/, '');
             if (text.trim() === '' || html === '<br>' || html === '<br/>' || html === '<br/ >') {
-                pageData[idx].text = '';
-                pageData[idx].type = 'empty';
-                pageData[idx].elementId = '';
+                flatLines[flatLineIdx].text = '';
+                flatLines[flatLineIdx].type = 'empty';
+                flatLines[flatLineIdx].elementId = '';
             } else {
-                pageData[idx].text = html;
-                if (pageData[idx].type === 'empty') {
-                    pageData[idx].type = 'user-text';
+                flatLines[flatLineIdx].text = html;
+                if (flatLines[flatLineIdx].type === 'empty') {
+                    flatLines[flatLineIdx].type = 'user-text';
                 }
             }
-        }
-    });
+        });
+        syncFlatLinesToStatePages();
+    } else {
+        const pageData = State.pages[State.currentPageIndex];
+        if (!pageData) return;
+        const lineDivs = editor.querySelectorAll('.sp-line');
+        lineDivs.forEach((div, idx) => {
+            if (idx < 50) {
+                const html = div.innerHTML.replace(/\n$/, ''); // Strip contenteditable trailing newline
+                const text = div.innerText.replace(/\n$/, '');
+                if (text.trim() === '' || html === '<br>' || html === '<br/>' || html === '<br/ >') {
+                    pageData[idx].text = '';
+                    pageData[idx].type = 'empty';
+                    pageData[idx].elementId = '';
+                } else {
+                    pageData[idx].text = html;
+                    if (pageData[idx].type === 'empty') {
+                        pageData[idx].type = 'user-text';
+                    }
+                }
+            }
+        });
+    }
 }
 
 // Setup core Event Listeners
@@ -513,7 +616,8 @@ function setupEventListeners() {
     
     document.getElementById('btn-goto-page').addEventListener('click', () => {
         const num = parseInt(document.getElementById('goto-page-input').value);
-        if (num && num > 0 && num <= State.pages.length) {
+        const totalPages = USE_FIXED_35_LINE_MODE ? getPaginatedPages().length : State.pages.length;
+        if (num && num > 0 && num <= totalPages) {
             saveActivePageDOM();
             State.currentPageIndex = num - 1;
             State.activeLineIndex = 0;
@@ -606,8 +710,9 @@ function setupEventListeners() {
 
 // Navigation implementation
 function navigatePage(direction) {
+    const totalPages = USE_FIXED_35_LINE_MODE ? getPaginatedPages().length : State.pages.length;
     const nextIndex = State.currentPageIndex + direction;
-    if (nextIndex >= 0 && nextIndex < State.pages.length) {
+    if (nextIndex >= 0 && nextIndex < totalPages) {
         saveActivePageDOM();
         State.currentPageIndex = nextIndex;
         State.activeLineIndex = 0;
@@ -619,9 +724,23 @@ function navigatePage(direction) {
 
 function addNewPage() {
     saveActivePageDOM();
-    State.pages.splice(State.currentPageIndex + 1, 0, createEmptyPage());
-    State.currentPageIndex++;
-    State.activeLineIndex = 0;
+    if (USE_FIXED_35_LINE_MODE) {
+        // Add 35 empty lines to flatLines
+        const newEmptyLines = [];
+        for (let i = 0; i < 35; i++) {
+            newEmptyLines.push({ text: "", type: "empty", elementId: "" });
+        }
+        const insertAtFlatIdx = (State.currentPageIndex + 1) * 35;
+        flatLines.splice(insertAtFlatIdx, 0, ...newEmptyLines);
+        syncFlatLinesToStatePages();
+        
+        State.currentPageIndex++;
+        State.activeLineIndex = 0;
+    } else {
+        State.pages.splice(State.currentPageIndex + 1, 0, createEmptyPage());
+        State.currentPageIndex++;
+        State.activeLineIndex = 0;
+    }
     renderActivePage();
     updatePageIndicator();
     State.saveToHistory();
@@ -629,16 +748,29 @@ function addNewPage() {
 }
 
 function deleteCurrentPage() {
-    if (State.pages.length <= 1) {
+    const totalPages = USE_FIXED_35_LINE_MODE ? getPaginatedPages().length : State.pages.length;
+    if (totalPages <= 1) {
         alert("You cannot delete the first page.");
         return;
     }
     if (confirm("Are you sure you want to delete this page? This cannot be undone.")) {
-        State.pages.splice(State.currentPageIndex, 1);
-        if (State.currentPageIndex >= State.pages.length) {
-            State.currentPageIndex = State.pages.length - 1;
+        if (USE_FIXED_35_LINE_MODE) {
+            const startFlatIdx = State.currentPageIndex * 35;
+            flatLines.splice(startFlatIdx, 35);
+            syncFlatLinesToStatePages();
+            
+            const newTotalPages = getPaginatedPages().length;
+            if (State.currentPageIndex >= newTotalPages) {
+                State.currentPageIndex = newTotalPages - 1;
+            }
+            State.activeLineIndex = 0;
+        } else {
+            State.pages.splice(State.currentPageIndex, 1);
+            if (State.currentPageIndex >= State.pages.length) {
+                State.currentPageIndex = State.pages.length - 1;
+            }
+            State.activeLineIndex = 0;
         }
-        State.activeLineIndex = 0;
         renderActivePage();
         updatePageIndicator();
         State.saveToHistory();
@@ -647,23 +779,36 @@ function deleteCurrentPage() {
 }
 
 function updatePageIndicator() {
+    const totalPages = USE_FIXED_35_LINE_MODE ? getPaginatedPages().length : State.pages.length;
     pageIndicatorNum.innerText = State.currentPageIndex + 1;
-    totalPagesNum.innerText = State.pages.length;
+    totalPagesNum.innerText = totalPages;
     document.getElementById('page-number-footer').innerText = State.currentPageIndex + 1;
 }
 
-function renderActivePage() {
-    const pageData = State.pages[State.currentPageIndex];
+function renderPageIntoContainer(pageData, targetContainer, isEditable = true, pageIdx = State.currentPageIndex) {
     if (!pageData) return;
+    targetContainer.innerHTML = "";
     
-    editor.innerHTML = "";
-    
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < pageData.length; i++) {
         const lineData = pageData[i];
+        if (!lineData) continue;
+        
         const lineDiv = document.createElement('div');
         lineDiv.className = 'sp-line';
-        lineDiv.setAttribute('contenteditable', 'true');
-        lineDiv.setAttribute('data-line-index', i);
+        if (isEditable) {
+            lineDiv.setAttribute('contenteditable', 'true');
+            lineDiv.setAttribute('data-line-index', i);
+            
+            if (USE_FIXED_35_LINE_MODE) {
+                const flatIdx = pageIdx * 35 + i;
+                lineDiv.setAttribute('data-flat-line-index', flatIdx);
+            }
+            
+            // Focus state sync
+            lineDiv.addEventListener('focus', () => {
+                State.activeLineIndex = i;
+            });
+        }
         
         if (lineData.type !== 'empty') {
             lineDiv.classList.add(`sp-line-${lineData.type}`);
@@ -676,12 +821,21 @@ function renderActivePage() {
             lineDiv.innerHTML = '<br>';
         }
         
-        // Focus state sync
-        lineDiv.addEventListener('focus', () => {
-            State.activeLineIndex = i;
-        });
-        
-        editor.appendChild(lineDiv);
+        targetContainer.appendChild(lineDiv);
+    }
+}
+
+function renderActivePage() {
+    if (USE_FIXED_35_LINE_MODE) {
+        const pages = getPaginatedPages();
+        if (State.currentPageIndex >= pages.length) {
+            State.currentPageIndex = Math.max(0, pages.length - 1);
+        }
+        const pageData = pages[State.currentPageIndex];
+        renderPageIntoContainer(pageData, editor, true, State.currentPageIndex);
+    } else {
+        const pageData = State.pages[State.currentPageIndex];
+        renderPageIntoContainer(pageData, editor, true, State.currentPageIndex);
     }
 }
 
@@ -752,10 +906,10 @@ function handleEditorKeyDown(e) {
                 focusLine(State.activeLineIndex);
             } else if (State.currentPageIndex > 0) {
                 State.currentPageIndex--;
-                State.activeLineIndex = 49;
+                State.activeLineIndex = getMaxLineIndex();
                 updatePageIndicator();
                 renderActivePage();
-                focusLine(49);
+                focusLine(getMaxLineIndex());
             }
             State.saveToHistory();
             return;
@@ -768,10 +922,10 @@ function handleEditorKeyDown(e) {
         if (lineDiv && isCaretAtEnd(lineDiv)) {
             e.preventDefault();
             saveActivePageDOM();
-            if (State.activeLineIndex < 49) {
+            if (State.activeLineIndex < getMaxLineIndex()) {
                 State.activeLineIndex++;
                 focusLine(State.activeLineIndex, true);
-            } else if (State.currentPageIndex < State.pages.length - 1) {
+            } else if (State.currentPageIndex < (USE_FIXED_35_LINE_MODE ? getPaginatedPages().length - 1 : State.pages.length - 1)) {
                 State.currentPageIndex++;
                 State.activeLineIndex = 0;
                 updatePageIndicator();
@@ -792,10 +946,10 @@ function handleEditorKeyDown(e) {
             focusLine(State.activeLineIndex);
         } else if (State.currentPageIndex > 0) {
             State.currentPageIndex--;
-            State.activeLineIndex = 49;
+            State.activeLineIndex = getMaxLineIndex();
             updatePageIndicator();
             renderActivePage();
-            focusLine(49);
+            focusLine(getMaxLineIndex());
         }
         return;
     }
@@ -803,10 +957,10 @@ function handleEditorKeyDown(e) {
     if (e.key === 'ArrowDown') {
         e.preventDefault();
         saveActivePageDOM();
-        if (State.activeLineIndex < 49) {
+        if (State.activeLineIndex < getMaxLineIndex()) {
             State.activeLineIndex++;
             focusLine(State.activeLineIndex);
-        } else if (State.currentPageIndex < State.pages.length - 1) {
+        } else if (State.currentPageIndex < (USE_FIXED_35_LINE_MODE ? getPaginatedPages().length - 1 : State.pages.length - 1)) {
             State.currentPageIndex++;
             State.activeLineIndex = 0;
             updatePageIndicator();
@@ -817,7 +971,6 @@ function handleEditorKeyDown(e) {
     }
 }
 
-// Clipboard paste handler matching typewriter line structure
 function handleEditorPaste(e) {
     e.preventDefault();
     const text = (e.clipboardData || window.clipboardData).getData('text');
@@ -852,34 +1005,52 @@ function handleEditorPaste(e) {
     // If multiple lines, overflow to subsequent lines
     if (lines.length > 1) {
         saveActivePageDOM();
-        for (let i = 1; i < lines.length; i++) {
-            if (currentIdx < 49) {
-                currentIdx++;
-                State.pages[State.currentPageIndex][currentIdx] = {
-                    text: lines[i],
-                    type: 'user-text',
-                    elementId: ''
-                };
-            } else {
-                // Move to next page
-                if (State.currentPageIndex < State.pages.length - 1) {
-                    State.currentPageIndex++;
+        if (USE_FIXED_35_LINE_MODE) {
+            const flatIdx = State.currentPageIndex * 35 + State.activeLineIndex;
+            const newLines = lines.slice(1).map(lineText => ({
+                text: lineText,
+                type: 'user-text',
+                elementId: ''
+            }));
+            flatLines.splice(flatIdx + 1, 0, ...newLines);
+            syncFlatLinesToStatePages();
+            
+            const targetFlatIdx = flatIdx + lines.length - 1;
+            State.currentPageIndex = Math.floor(targetFlatIdx / 35);
+            State.activeLineIndex = targetFlatIdx % 35;
+            updatePageIndicator();
+            renderActivePage();
+            focusLine(State.activeLineIndex);
+        } else {
+            for (let i = 1; i < lines.length; i++) {
+                if (currentIdx < 49) {
+                    currentIdx++;
+                    State.pages[State.currentPageIndex][currentIdx] = {
+                        text: lines[i],
+                        type: 'user-text',
+                        elementId: ''
+                    };
                 } else {
-                    State.pages.push(createEmptyPage());
-                    State.currentPageIndex = State.pages.length - 1;
+                    // Move to next page
+                    if (State.currentPageIndex < State.pages.length - 1) {
+                        State.currentPageIndex++;
+                    } else {
+                        State.pages.push(createEmptyPage());
+                        State.currentPageIndex = State.pages.length - 1;
+                    }
+                    currentIdx = 0;
+                    State.pages[State.currentPageIndex][currentIdx] = {
+                        text: lines[i],
+                        type: 'user-text',
+                        elementId: ''
+                    };
                 }
-                currentIdx = 0;
-                State.pages[State.currentPageIndex][currentIdx] = {
-                    text: lines[i],
-                    type: 'user-text',
-                    elementId: ''
-                };
             }
+            State.activeLineIndex = currentIdx;
+            updatePageIndicator();
+            renderActivePage();
+            focusLine(currentIdx);
         }
-        State.activeLineIndex = currentIdx;
-        updatePageIndicator();
-        renderActivePage();
-        focusLine(currentIdx);
     }
     
     saveActivePageDOM();
@@ -887,6 +1058,18 @@ function handleEditorPaste(e) {
 }
 
 function findFirstEmptyLine() {
+    if (USE_FIXED_35_LINE_MODE) {
+        const pages = getPaginatedPages();
+        const pageData = pages[State.currentPageIndex];
+        if (pageData) {
+            for (let i = 0; i < pageData.length; i++) {
+                if (pageData[i].type === 'empty' || pageData[i].text.trim() === '') {
+                    return i;
+                }
+            }
+        }
+        return getMaxLineIndex();
+    }
     const pageData = State.pages[State.currentPageIndex];
     for (let i = 0; i < 50; i++) {
         if (pageData[i].type === 'empty' || pageData[i].text.trim() === '') {
@@ -897,21 +1080,35 @@ function findFirstEmptyLine() {
 }
 
 function moveToNextLine(currentIdx) {
-    if (currentIdx < 49) {
+    if (currentIdx < getMaxLineIndex()) {
         State.activeLineIndex = currentIdx + 1;
         focusLine(State.activeLineIndex);
     } else {
         // Automatically create/move to new page
-        if (State.currentPageIndex < State.pages.length - 1) {
+        const totalPages = USE_FIXED_35_LINE_MODE ? getPaginatedPages().length : State.pages.length;
+        if (State.currentPageIndex < totalPages - 1) {
             State.currentPageIndex++;
             State.activeLineIndex = 0;
             updatePageIndicator();
             renderActivePage();
             focusLine(0);
         } else {
-            State.pages.push(createEmptyPage());
-            State.currentPageIndex = State.pages.length - 1;
-            State.activeLineIndex = 0;
+            if (USE_FIXED_35_LINE_MODE) {
+                // Add 35 empty lines to flatLines
+                const newEmptyLines = [];
+                for (let i = 0; i < 35; i++) {
+                    newEmptyLines.push({ text: "", type: "empty", elementId: "" });
+                }
+                flatLines.push(...newEmptyLines);
+                syncFlatLinesToStatePages();
+                
+                State.currentPageIndex++;
+                State.activeLineIndex = 0;
+            } else {
+                State.pages.push(createEmptyPage());
+                State.currentPageIndex = State.pages.length - 1;
+                State.activeLineIndex = 0;
+            }
             updatePageIndicator();
             renderActivePage();
             focusLine(0);
@@ -1456,6 +1653,9 @@ function createNewProject() {
     // Set up new project state
     State.projectName = trimmed;
     State.pages = [createEmptyPage()];
+    if (USE_FIXED_35_LINE_MODE) {
+        initializeFlatLines();
+    }
     State.currentPageIndex = 0;
     State.activeLineIndex = 0;
     State.favorites = [];
@@ -1670,6 +1870,9 @@ function deleteProject(name) {
                 const defaultName = "Untitled Screenplay";
                 State.projectName = defaultName;
                 State.pages = [createEmptyPage()];
+                if (USE_FIXED_35_LINE_MODE) {
+                    initializeFlatLines();
+                }
                 State.currentPageIndex = 0;
                 State.activeLineIndex = 0;
                 State.favorites = [];
@@ -1701,7 +1904,108 @@ function deleteProject(name) {
     }
 }
 
-function exportToPDF() {
+class RenderItem {
+    constructor(text, elementId, lineType, originalLineIdx, isBr = false) {
+        this.text = text;
+        this.elementId = elementId;
+        this.lineType = lineType;
+        this.originalLineIdx = originalLineIdx;
+        this.isBr = isBr;
+    }
+}
+
+function isStructuralLabel(text, elementId, lineType) {
+    if (lineType === 'main-term') return true;
+    if (['scene_heading', 'character', 'transition', 'shot', 'act'].includes(elementId)) return true;
+    
+    // Check for camera shot label prefixes
+    const cleanText = text.trim();
+    if (cleanText === 'Camera Shot:' || 
+        cleanText === 'Camera Angle:' || 
+        cleanText === 'Camera Movement:' || 
+        cleanText === 'Special Cinematic Shot:') {
+        return true;
+    }
+    return false;
+}
+
+function findNextContentItem(renderItems, startIdx) {
+    for (let idx = startIdx; idx < renderItems.length; idx++) {
+        const item = renderItems[idx];
+        if (item.isBr || !item.text.trim()) continue;
+        if (isStructuralLabel(item.text, item.elementId, item.lineType)) continue;
+        return item;
+    }
+    return null;
+}
+
+function splitTextAtBoundary(text, lineType, elementId, tempScreenplay, remainingSpace) {
+    if (!text.trim()) {
+        return { fitText: "", remainingText: "" };
+    }
+    const words = text.split(/(\s+)/); // split by whitespace, preserving whitespace
+    
+    // Create a temporary testing lineDiv with exact classes
+    const testDiv = document.createElement('div');
+    testDiv.className = 'sp-line';
+    testDiv.style.height = "auto";
+    testDiv.style.minHeight = "auto";
+    testDiv.style.maxHeight = "none";
+    testDiv.style.overflow = "visible";
+    testDiv.style.whiteSpace = "pre-wrap";
+    testDiv.style.wordBreak = "break-word";
+    testDiv.style.display = "block";
+    testDiv.style.lineHeight = "inherit";
+    
+    if (lineType !== 'empty') {
+        testDiv.classList.add(`sp-line-${lineType}`);
+        if (elementId) {
+            testDiv.classList.add(`sp-line-${elementId.replace('_', '-')}`);
+        }
+    }
+    
+    // Find the maximum words that fit
+    let low = 0;
+    let high = words.length;
+    let bestFitIdx = 0;
+    
+    // Check if even the first word fits
+    testDiv.innerHTML = words[0];
+    tempScreenplay.appendChild(testDiv);
+    let h = testDiv.getBoundingClientRect().height;
+    tempScreenplay.removeChild(testDiv);
+    
+    if (h > remainingSpace) {
+        return { fitText: "", remainingText: text };
+    }
+    
+    while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const testText = words.slice(0, mid).join('');
+        
+        testDiv.innerHTML = testText;
+        tempScreenplay.appendChild(testDiv);
+        h = testDiv.getBoundingClientRect().height;
+        tempScreenplay.removeChild(testDiv);
+        
+        if (h <= remainingSpace) {
+            bestFitIdx = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    
+    if (bestFitIdx === 0) {
+        return { fitText: "", remainingText: text };
+    }
+    
+    const fitText = words.slice(0, bestFitIdx).join('');
+    const remainingText = words.slice(bestFitIdx).join('');
+    return { fitText, remainingText };
+}
+
+function exportToPDFMirror() {
     saveActivePageDOM();
     
     const printContainer = document.getElementById('print-container');
@@ -1712,46 +2016,867 @@ function exportToPDF() {
     const oldTitle = document.title;
     document.title = State.projectName;
     
+    const basePageContainer = document.getElementById('page-container');
+    if (basePageContainer) {
+        State.pages.forEach((pageData, pageIdx) => {
+            // Clone the base page container template
+            const pageClone = basePageContainer.cloneNode(true);
+            pageClone.id = ""; // Avoid duplicate IDs
+            
+            // Find screenplay content area in the clone
+            const editorClone = pageClone.querySelector('.screenplay-page');
+            if (editorClone) {
+                editorClone.id = ""; // Avoid duplicate IDs
+                
+                // Render page content using the single shared page renderer helper
+                renderPageIntoContainer(pageData, editorClone, false);
+                
+                // Apply print safety styling to cloned screenplay lines inside clone
+                const lineDivs = editorClone.querySelectorAll('.sp-line');
+                lineDivs.forEach(lineDiv => {
+                    lineDiv.style.setProperty('height', 'auto', 'important');
+                    lineDiv.style.setProperty('min-height', 'auto', 'important');
+                    lineDiv.style.setProperty('max-height', 'none', 'important');
+                    lineDiv.style.setProperty('overflow', 'visible', 'important');
+                    lineDiv.style.setProperty('white-space', 'pre-wrap', 'important');
+                    lineDiv.style.setProperty('word-break', 'break-word', 'important');
+                });
+                
+                // Apply print safety styling to screenplay editor clone
+                editorClone.style.setProperty('height', 'auto', 'important');
+                editorClone.style.setProperty('min-height', 'auto', 'important');
+                editorClone.style.setProperty('max-height', 'none', 'important');
+                editorClone.style.setProperty('overflow', 'visible', 'important');
+            }
+            
+            // Apply print safety styling to page container clone
+            pageClone.style.setProperty('height', 'auto', 'important');
+            pageClone.style.setProperty('min-height', 'var(--page-height)', 'important');
+            pageClone.style.setProperty('max-height', 'none', 'important');
+            pageClone.style.setProperty('overflow', 'visible', 'important');
+            pageClone.style.setProperty('box-sizing', 'border-box', 'important');
+            
+            // Update page footer
+            const footerClone = pageClone.querySelector('.page-number-footer');
+            if (footerClone) {
+                footerClone.innerText = pageIdx + 1;
+            }
+            
+            printContainer.appendChild(pageClone);
+        });
+    }
+    
+    window.print();
+    
+    document.title = oldTitle;
+    printContainer.innerHTML = "";
+}
+
+// HTML Tokenizer and Style Parser for screenplay lines
+function parseHTMLToStyledChunks(htmlString, defaultStyle) {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = htmlString;
+    
+    const chunks = [];
+    
+    function traverse(node, currentStyle) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            if (node.nodeValue) {
+                // Replace non-breaking spaces (\u00A0) with standard ASCII spaces to prevent rendering errors in Courier
+                const cleanText = node.nodeValue.replace(/\u00a0/g, ' ');
+                chunks.push({
+                    text: cleanText,
+                    ...currentStyle
+                });
+            }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+            const nextStyle = { ...currentStyle };
+            const tagName = node.tagName.toLowerCase();
+            
+            if (tagName === 'b' || tagName === 'strong') {
+                nextStyle.bold = true;
+            } else if (tagName === 'i' || tagName === 'em') {
+                nextStyle.italic = true;
+            } else if (tagName === 'u') {
+                nextStyle.underline = true;
+            } else if (tagName === 'span' || tagName === 'font') {
+                if (node.classList.contains('text-style')) {
+                    if (node.classList.contains('text-title')) {
+                        nextStyle.fontSize = 36;
+                        nextStyle.bold = true;
+                    } else if (node.classList.contains('text-subtitle')) {
+                        nextStyle.fontSize = 27;
+                        nextStyle.bold = true;
+                    } else if (node.classList.contains('text-heading')) {
+                        nextStyle.fontSize = 22.5;
+                        nextStyle.bold = true;
+                    } else if (node.classList.contains('text-subheading')) {
+                        nextStyle.fontSize = 18;
+                        nextStyle.bold = true;
+                    } else if (node.classList.contains('text-section')) {
+                        nextStyle.fontSize = 15;
+                        nextStyle.bold = true;
+                    } else if (node.classList.contains('text-subsection')) {
+                        nextStyle.fontSize = 13.5;
+                        nextStyle.bold = true;
+                    }
+                }
+                if (node.style.fontWeight === 'bold' || node.style.fontWeight === '700') {
+                    nextStyle.bold = true;
+                }
+                if (node.style.fontStyle === 'italic') {
+                    nextStyle.italic = true;
+                }
+                if (node.style.textDecoration && node.style.textDecoration.includes('underline')) {
+                    nextStyle.underline = true;
+                }
+            } else if (tagName === 'br') {
+                chunks.push({
+                    text: '\n',
+                    ...currentStyle
+                });
+            }
+            
+            for (let child of node.childNodes) {
+                traverse(child, nextStyle);
+            }
+        }
+    }
+    
+    traverse(tempDiv, defaultStyle || {
+        bold: false,
+        italic: false,
+        underline: false,
+        fontSize: 12,
+        fontName: 'Courier'
+    });
+    
+    return chunks;
+}
+
+// Word wrapping helper operating on styled text chunks
+function wrapStyledChunks(chunks, maxWidth, doc) {
+    const visualLines = [];
+    let currentVisualLine = [];
+    let currentLineWidth = 0;
+    
+    function commitLine() {
+        // Strip trailing spaces from the end of the line
+        if (currentVisualLine.length > 0) {
+            let lastIdx = currentVisualLine.length - 1;
+            while (lastIdx >= 0 && currentVisualLine[lastIdx].text.trim() === '' && currentVisualLine[lastIdx].text !== '\n') {
+                currentVisualLine.splice(lastIdx, 1);
+                lastIdx--;
+            }
+        }
+        if (currentVisualLine.length > 0) {
+            visualLines.push(currentVisualLine);
+        } else {
+            visualLines.push([{ text: '', bold: false, italic: false, underline: false, fontSize: 12, fontName: 'Courier' }]);
+        }
+        currentVisualLine = [];
+        currentLineWidth = 0;
+    }
+    
+    for (let chunk of chunks) {
+        const tokens = chunk.text.match(/[^\s\n]+|\n|\s+/g) || [];
+        for (let token of tokens) {
+            if (token === '\n') {
+                commitLine();
+                continue;
+            }
+            
+            const style = (chunk.bold && chunk.italic) ? 'bolditalic' : (chunk.bold ? 'bold' : (chunk.italic ? 'italic' : 'normal'));
+            doc.setFont(chunk.fontName || 'Courier', style);
+            doc.setFontSize(chunk.fontSize || 12);
+            const tokenWidth = doc.getStringUnitWidth(token) * (chunk.fontSize || 12);
+            
+            const isSpaces = /^\s+$/.test(token);
+            
+            if (currentLineWidth + tokenWidth <= maxWidth) {
+                currentVisualLine.push({
+                    text: token,
+                    bold: chunk.bold,
+                    italic: chunk.italic,
+                    underline: chunk.underline,
+                    fontSize: chunk.fontSize,
+                    fontName: chunk.fontName
+                });
+                currentLineWidth += tokenWidth;
+            } else {
+                if (isSpaces) {
+                    commitLine();
+                } else {
+                    if (currentVisualLine.length > 0) {
+                        commitLine();
+                    }
+                    if (tokenWidth <= maxWidth) {
+                        currentVisualLine.push({
+                            text: token,
+                            bold: chunk.bold,
+                            italic: chunk.italic,
+                            underline: chunk.underline,
+                            fontSize: chunk.fontSize,
+                            fontName: chunk.fontName
+                        });
+                        currentLineWidth = tokenWidth;
+                    } else {
+                        let wordPart = '';
+                        let wordPartWidth = 0;
+                        for (let char of token) {
+                            const charWidth = doc.getStringUnitWidth(char) * (chunk.fontSize || 12);
+                            if (wordPartWidth + charWidth <= maxWidth) {
+                                wordPart += char;
+                                wordPartWidth += charWidth;
+                            } else {
+                                currentVisualLine.push({
+                                    text: wordPart,
+                                    bold: chunk.bold,
+                                    italic: chunk.italic,
+                                    underline: chunk.underline,
+                                    fontSize: chunk.fontSize,
+                                    fontName: chunk.fontName
+                                });
+                                commitLine();
+                                wordPart = char;
+                                wordPartWidth = charWidth;
+                            }
+                        }
+                        if (wordPart) {
+                            currentVisualLine.push({
+                                text: wordPart,
+                                bold: chunk.bold,
+                                italic: chunk.italic,
+                                underline: chunk.underline,
+                                fontSize: chunk.fontSize,
+                                fontName: chunk.fontName
+                            });
+                            currentLineWidth = wordPartWidth;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if (currentVisualLine.length > 0) {
+        let lastIdx = currentVisualLine.length - 1;
+        while (lastIdx >= 0 && currentVisualLine[lastIdx].text.trim() === '' && currentVisualLine[lastIdx].text !== '\n') {
+            currentVisualLine.splice(lastIdx, 1);
+            lastIdx--;
+        }
+        if (currentVisualLine.length > 0) {
+            visualLines.push(currentVisualLine);
+        }
+    }
+    
+    return visualLines;
+}
+
+// Dedicated PDF Layout Engine Helper
+class PDFLayoutEngine {
+    constructor(doc) {
+        this.doc = doc;
+        
+        // Dynamically measure page sizes to avoid hardcoding width and height
+        this.pageWidth = doc.internal.pageSize.width || doc.internal.pageSize.getWidth();
+        this.pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
+        
+        // Define margins (standard screenplay layout margins translated to points)
+        this.leftMargin = 108; // 1.5in
+        this.rightMargin = 72;  // 1.0in
+        this.topMargin = 36;    // 0.5in
+        this.bottomMargin = 756; // 10.5in
+        
+        // Available width for content
+        this.maxWidth = this.pageWidth - this.leftMargin - this.rightMargin;
+        
+        this.lineHeight = 14.4; // 0.20in
+        this.y = this.topMargin;
+        this.pageCount = 0;
+    }
+    
+    startNewPage() {
+        if (this.pageCount > 0) {
+            this.doc.addPage();
+        }
+        this.pageCount++;
+        this.y = this.topMargin;
+        this.drawFooter();
+    }
+    
+    drawFooter() {
+        this.doc.setFont('Courier', 'normal');
+        this.doc.setFontSize(12);
+        this.doc.setTextColor(0, 0, 0);
+        // Page footer at bottom right (1.0in from right edge, 0.5in from bottom edge)
+        const footerX = this.pageWidth - this.rightMargin;
+        this.doc.text(String(this.pageCount), footerX, this.bottomMargin, { align: 'right' });
+    }
+    
+    advanceY(spacing) {
+        if (this.y + spacing > this.bottomMargin) {
+            this.startNewPage();
+        }
+        this.y += spacing;
+    }
+    
+    drawEmptyLine() {
+        this.advanceY(this.lineHeight);
+    }
+    
+    drawStyledLine(lineText, lineType) {
+        const isMainTerm = lineType === 'main-term';
+        const defaultFontSize = isMainTerm ? 13.2 : 12;
+        const defaultBold = isMainTerm;
+        
+        const chunks = parseHTMLToStyledChunks(lineText, {
+            bold: defaultBold,
+            italic: false,
+            underline: false,
+            fontSize: defaultFontSize,
+            fontName: 'Courier'
+        });
+        
+        const visualLines = wrapStyledChunks(chunks, this.maxWidth, this.doc);
+        
+        for (let visualLine of visualLines) {
+            let maxFontSize = 12;
+            visualLine.forEach(chunk => {
+                if (chunk.fontSize > maxFontSize) {
+                    maxFontSize = chunk.fontSize;
+                }
+            });
+            const spacing = maxFontSize > 12 ? maxFontSize * 1.2 : this.lineHeight;
+            
+            this.advanceY(spacing);
+            
+            let totalWidth = 0;
+            visualLine.forEach(chunk => {
+                const style = (chunk.bold && chunk.italic) ? 'bolditalic' : (chunk.bold ? 'bold' : (chunk.italic ? 'italic' : 'normal'));
+                this.doc.setFont(chunk.fontName || 'Courier', style);
+                this.doc.setFontSize(chunk.fontSize || 12);
+                totalWidth += this.doc.getStringUnitWidth(chunk.text) * (chunk.fontSize || 12);
+            });
+            
+            let currentX = this.leftMargin;
+            if (isMainTerm) {
+                currentX = this.leftMargin + (this.maxWidth - totalWidth) / 2;
+            }
+            
+            for (let chunk of visualLine) {
+                const style = (chunk.bold && chunk.italic) ? 'bolditalic' : (chunk.bold ? 'bold' : (chunk.italic ? 'italic' : 'normal'));
+                this.doc.setFont(chunk.fontName || 'Courier', style);
+                this.doc.setFontSize(chunk.fontSize || 12);
+                this.doc.setTextColor(0, 0, 0);
+                
+                this.doc.text(chunk.text, currentX, this.y);
+                
+                const chunkWidth = this.doc.getStringUnitWidth(chunk.text) * (chunk.fontSize || 12);
+                
+                if (chunk.underline) {
+                    this.doc.setLineWidth(0.5);
+                    this.doc.setDrawColor(0, 0, 0);
+                    this.doc.line(currentX, this.y + 1.5, currentX + chunkWidth, this.y + 1.5);
+                }
+                
+                currentX += chunkWidth;
+            }
+        }
+    }
+}
+
+function exportToPDF() {
+    saveActivePageDOM();
+    
+    if (USE_DEDICATED_PDF_ENGINE) {
+        try {
+            // Show loading state
+            const exportBtn = document.getElementById('export-pdf');
+            const originalText = exportBtn.innerHTML;
+            exportBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
+            exportBtn.disabled = true;
+            
+            // jsPDF is loaded locally from index.html
+            const { jsPDF } = window.jspdf;
+            
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'pt',
+                format: 'letter'
+            });
+            
+            const pages = USE_FIXED_35_LINE_MODE ? getPaginatedPages() : State.pages;
+            
+            const engine = new PDFLayoutEngine(doc);
+            
+            for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+                const pageData = pages[pageIdx];
+                
+                engine.startNewPage();
+                
+                for (let i = 0; i < pageData.length; i++) {
+                    const line = pageData[i];
+                    if (!line) continue;
+                    
+                    if (line.type === 'empty') {
+                        engine.drawEmptyLine();
+                    } else {
+                        const rawText = line.type === 'main-term' ? line.text.toUpperCase() : line.text;
+                        engine.drawStyledLine(rawText, line.type);
+                    }
+                }
+            }
+            
+            // Save generated PDF
+            doc.save(`${State.projectName}.pdf`);
+            
+            // Restore button state
+            exportBtn.innerHTML = originalText;
+            exportBtn.disabled = false;
+            
+        } catch (err) {
+            console.error("Dedicated PDF engine failed, falling back to legacy mirror", err);
+            // Restore button state
+            const exportBtn = document.getElementById('export-pdf');
+            if (exportBtn) {
+                exportBtn.disabled = false;
+                exportBtn.innerHTML = '<i class="fa-solid fa-file-pdf"></i> Export PDF';
+            }
+            // Fall back to legacy mirror export
+            exportToPDFMirror();
+        }
+        return;
+    }
+    
+    if (USE_PDF_MIRROR_EXPORT) {
+        saveActivePageDOM();
+        
+        const printContainer = document.getElementById('print-container');
+        if (!printContainer) return;
+        
+        printContainer.innerHTML = "";
+        
+        const oldTitle = document.title;
+        document.title = State.projectName;
+        
+        const basePageContainer = document.getElementById('page-container');
+        if (basePageContainer) {
+            // Determine active editor pages (either virtual 35-line or normal pages)
+            const pages = USE_FIXED_35_LINE_MODE ? getPaginatedPages() : State.pages;
+            
+            pages.forEach((pageData, pageIdx) => {
+                // Clone the base page container template
+                const pageClone = basePageContainer.cloneNode(true);
+                pageClone.id = ""; // Avoid duplicate IDs
+                
+                // Find screenplay content area in the clone
+                const editorClone = pageClone.querySelector('.screenplay-page');
+                if (editorClone) {
+                    editorClone.id = ""; // Avoid duplicate IDs
+                    
+                    // Render page content using the single shared page renderer helper
+                    renderPageIntoContainer(pageData, editorClone, false, pageIdx);
+                    
+                    // Apply print safety styling to cloned screenplay lines inside clone
+                    const lineDivs = editorClone.querySelectorAll('.sp-line');
+                    lineDivs.forEach(lineDiv => {
+                        lineDiv.style.setProperty('height', 'auto', 'important');
+                        lineDiv.style.setProperty('min-height', 'auto', 'important');
+                        lineDiv.style.setProperty('max-height', 'none', 'important');
+                        lineDiv.style.setProperty('overflow', 'visible', 'important');
+                        lineDiv.style.setProperty('white-space', 'pre-wrap', 'important');
+                        lineDiv.style.setProperty('word-break', 'break-word', 'important');
+                    });
+                    
+                    // Apply print safety styling to screenplay editor clone
+                    editorClone.style.setProperty('height', 'auto', 'important');
+                    editorClone.style.setProperty('min-height', 'auto', 'important');
+                    editorClone.style.setProperty('max-height', 'none', 'important');
+                    editorClone.style.setProperty('overflow', 'visible', 'important');
+                }
+                
+                // Apply print safety styling to page container clone
+                pageClone.style.setProperty('height', 'auto', 'important');
+                pageClone.style.setProperty('min-height', 'var(--page-height)', 'important');
+                pageClone.style.setProperty('max-height', 'none', 'important');
+                pageClone.style.setProperty('overflow', 'visible', 'important');
+                pageClone.style.setProperty('box-sizing', 'border-box', 'important');
+                
+                // Update page footer
+                const footerClone = pageClone.querySelector('.page-number-footer');
+                if (footerClone) {
+                    footerClone.innerText = pageIdx + 1;
+                }
+                
+                printContainer.appendChild(pageClone);
+            });
+        }
+        
+        window.print();
+        
+        document.title = oldTitle;
+        printContainer.innerHTML = "";
+        return;
+    }
+    
+    // Otherwise fallback to legacy exporter
+    exportToPDFLegacy();
+}
+
+function exportToPDFLegacy() {
+    if (USE_FIXED_35_LINE_PDF_EXPORT) {
+        saveActivePageDOM();
+        
+        const printContainer = document.getElementById('print-container');
+        if (!printContainer) return;
+        
+        printContainer.innerHTML = "";
+        
+        const oldTitle = document.title;
+        document.title = State.projectName;
+        
+        const basePageContainer = document.getElementById('page-container');
+        if (basePageContainer) {
+            let runningPdfPageIdx = 0;
+            State.pages.forEach((pageData, editorPageIdx) => {
+                // Find the index of the last non-empty line on this editor page
+                let lastNonEmptyIdx = -1;
+                for (let i = 49; i >= 0; i--) {
+                    if (pageData[i] && pageData[i].type !== 'empty') {
+                        lastNonEmptyIdx = i;
+                        break;
+                    }
+                }
+                
+                // If the editor page is entirely empty, we still render 1 empty page (35 empty lines)
+                const totalLinesToExport = Math.max(1, lastNonEmptyIdx + 1);
+                const activeLines = pageData.slice(0, totalLinesToExport);
+                
+                // Segment activeLines into chunks of max 35 lines
+                for (let startIdx = 0; startIdx < activeLines.length; startIdx += 35) {
+                    const chunk = activeLines.slice(startIdx, startIdx + 35);
+                    
+                    // Pad chunk to exactly 35 lines
+                    while (chunk.length < 35) {
+                        chunk.push({ text: "", type: "empty", elementId: "" });
+                    }
+                    
+                    // Clone the base page container template
+                    const pageClone = basePageContainer.cloneNode(true);
+                    pageClone.id = ""; // Avoid duplicate IDs
+                    
+                    // Find screenplay content area in the clone
+                    const editorClone = pageClone.querySelector('.screenplay-page');
+                    if (editorClone) {
+                        editorClone.id = ""; // Avoid duplicate IDs
+                        
+                        // Render page content using the single shared page renderer helper
+                        renderPageIntoContainer(chunk, editorClone, false, runningPdfPageIdx);
+                        
+                        // Apply print safety styling to cloned screenplay lines inside clone
+                        const lineDivs = editorClone.querySelectorAll('.sp-line');
+                        lineDivs.forEach(lineDiv => {
+                            lineDiv.style.setProperty('height', 'auto', 'important');
+                            lineDiv.style.setProperty('min-height', 'auto', 'important');
+                            lineDiv.style.setProperty('max-height', 'none', 'important');
+                            lineDiv.style.setProperty('overflow', 'visible', 'important');
+                            lineDiv.style.setProperty('white-space', 'pre-wrap', 'important');
+                            lineDiv.style.setProperty('word-break', 'break-word', 'important');
+                        });
+                        
+                        // Apply print safety styling to screenplay editor clone
+                        editorClone.style.setProperty('height', 'auto', 'important');
+                        editorClone.style.setProperty('min-height', 'auto', 'important');
+                        editorClone.style.setProperty('max-height', 'none', 'important');
+                        editorClone.style.setProperty('overflow', 'visible', 'important');
+                    }
+                    
+                    // Apply print safety styling to page container clone
+                    pageClone.style.setProperty('height', 'auto', 'important');
+                    pageClone.style.setProperty('min-height', 'var(--page-height)', 'important');
+                    pageClone.style.setProperty('max-height', 'none', 'important');
+                    pageClone.style.setProperty('overflow', 'visible', 'important');
+                    pageClone.style.setProperty('box-sizing', 'border-box', 'important');
+                    
+                    // Update page footer
+                    const footerClone = pageClone.querySelector('.page-number-footer');
+                    if (footerClone) {
+                        footerClone.innerText = runningPdfPageIdx + 1;
+                    }
+                    
+                    printContainer.appendChild(pageClone);
+                    runningPdfPageIdx++;
+                }
+            });
+        }
+        
+        window.print();
+        
+        document.title = oldTitle;
+        printContainer.innerHTML = "";
+        return;
+    }
+    
+    if (typeof USE_EDITOR_MIRROR_EXPORT !== 'undefined' && USE_EDITOR_MIRROR_EXPORT) {
+        exportToPDFMirror();
+        return;
+    }
+    
+    saveActivePageDOM();
+    
+    const printContainer = document.getElementById('print-container');
+    if (!printContainer) return;
+    
+    printContainer.innerHTML = "";
+    
+    const oldTitle = document.title;
+    document.title = State.projectName;
+    
+    // Create off-screen measurement container
+    const measureDiv = document.createElement('div');
+    measureDiv.style.position = 'absolute';
+    measureDiv.style.left = '-9999px';
+    measureDiv.style.top = '0';
+    measureDiv.style.width = '8.5in';
+    document.body.appendChild(measureDiv);
+    
+    // Measure usable page height using current styles
+    const tempPage = document.createElement('div');
+    tempPage.className = 'page-container';
+    tempPage.style.boxShadow = 'none';
+    tempPage.style.margin = '0';
+    tempPage.style.width = '8.5in';
+    tempPage.style.height = '11in';
+    tempPage.style.padding = '0.5in 1.0in 0.5in 1.5in';
+    tempPage.style.boxSizing = 'border-box';
+    tempPage.style.display = 'flex';
+    tempPage.style.flexDirection = 'column';
+    
+    const tempScreenplay = document.createElement('div');
+    tempScreenplay.className = 'screenplay-page';
+    tempScreenplay.style.flex = '1';
+    tempScreenplay.style.display = 'flex';
+    tempScreenplay.style.flexDirection = 'column';
+    tempScreenplay.style.height = '100%';
+    
+    tempPage.appendChild(tempScreenplay);
+    measureDiv.appendChild(tempPage);
+    
+    const screenplayPageRect = tempScreenplay.getBoundingClientRect();
+    const usablePageHeight = screenplayPageRect.height || 960;
+    const maxUsableHeight = usablePageHeight - 25; // 25px safety buffer
+    
+    let runningPageNumber = 1;
+    
     State.pages.forEach((pageData, pageIdx) => {
-        const pageContainer = document.createElement('div');
-        pageContainer.className = 'page-container';
+        // Find the index of the last non-empty line
+        let lastNonEmptyIdx = 0;
+        for (let i = 49; i >= 0; i--) {
+            if (pageData[i] && pageData[i].type !== 'empty') {
+                lastNonEmptyIdx = i;
+                break;
+            }
+        }
         
-        const screenplayPage = document.createElement('div');
-        screenplayPage.className = 'screenplay-page';
-        
-        for (let i = 0; i < 50; i++) {
+        // Build flat render items list
+        const renderItems = [];
+        for (let i = 0; i <= lastNonEmptyIdx; i++) {
             const lineData = pageData[i];
+            if (lineData.type === 'empty') {
+                renderItems.push(new RenderItem("", "", "empty", i, true));
+            } else {
+                const parts = lineData.text.split(/<br\s*\/?>/gi);
+                parts.forEach((part, partIdx) => {
+                    renderItems.push(new RenderItem(part, lineData.elementId, lineData.type, i));
+                    if (partIdx < parts.length - 1) {
+                        renderItems.push(new RenderItem("", lineData.elementId, lineData.type, i, true));
+                    }
+                });
+            }
+        }
+        
+        let pageContainer = document.createElement('div');
+        pageContainer.className = 'page-container';
+        pageContainer.style.setProperty('height', 'auto', 'important');
+        pageContainer.style.setProperty('min-height', 'var(--page-height)', 'important');
+        pageContainer.style.setProperty('max-height', 'none', 'important');
+        pageContainer.style.setProperty('overflow', 'visible', 'important');
+        
+        let screenplayPage = document.createElement('div');
+        screenplayPage.className = 'screenplay-page';
+        pageContainer.appendChild(screenplayPage);
+        
+        let currentY = 0;
+        
+        for (let itemIdx = 0; itemIdx < renderItems.length; itemIdx++) {
+            const item = renderItems[itemIdx];
+            
+            // Create DOM element for measurement and rendering
             const lineDiv = document.createElement('div');
             lineDiv.className = 'sp-line';
-            
-            // Apply inline styles to cloned PDF DOM for layout safety
             lineDiv.style.height = "auto";
             lineDiv.style.minHeight = "auto";
             lineDiv.style.maxHeight = "none";
             lineDiv.style.overflow = "visible";
-            lineDiv.style.lineHeight = "1.5";
+            lineDiv.style.whiteSpace = "pre-wrap";
+            lineDiv.style.wordBreak = "break-word";
+            lineDiv.style.display = "block";
+            lineDiv.style.lineHeight = "inherit";
             
-            if (lineData.type !== 'empty') {
-                lineDiv.classList.add(`sp-line-${lineData.type}`);
-                if (lineData.elementId) {
-                    lineDiv.classList.add(`sp-line-${lineData.elementId.replace('_', '-')}`);
-                }
-                lineDiv.innerHTML = lineData.text;
-            } else {
+            if (item.isBr) {
                 lineDiv.classList.add('sp-line-empty');
                 lineDiv.innerHTML = '<br>';
+            } else {
+                if (item.lineType !== 'empty') {
+                    lineDiv.classList.add(`sp-line-${item.lineType}`);
+                    if (item.elementId) {
+                        lineDiv.classList.add(`sp-line-${item.elementId.replace('_', '-')}`);
+                    }
+                }
+                lineDiv.innerHTML = item.text;
             }
+            
+            // Measure line height off-screen
+            tempScreenplay.appendChild(lineDiv);
+            const lineHeight = lineDiv.getBoundingClientRect().height;
+            tempScreenplay.removeChild(lineDiv);
+            
+            // 1. Lookahead pairing for structural labels to keep them with their content
+            const isLabel = isStructuralLabel(item.text, item.elementId, item.lineType) && !item.isBr;
+            if (isLabel && currentY > 0) {
+                const nextContent = findNextContentItem(renderItems, itemIdx + 1);
+                if (nextContent) {
+                    const testContentDiv = document.createElement('div');
+                    testContentDiv.className = 'sp-line';
+                    testContentDiv.style.height = "auto";
+                    testContentDiv.style.minHeight = "auto";
+                    testContentDiv.style.maxHeight = "none";
+                    testContentDiv.style.overflow = "visible";
+                    testContentDiv.style.whiteSpace = "pre-wrap";
+                    testContentDiv.style.wordBreak = "break-word";
+                    testContentDiv.style.display = "block";
+                    testContentDiv.style.lineHeight = "inherit";
+                    
+                    if (nextContent.lineType !== 'empty') {
+                        testContentDiv.classList.add(`sp-line-${nextContent.lineType}`);
+                        if (nextContent.elementId) {
+                            testContentDiv.classList.add(`sp-line-${nextContent.elementId.replace('_', '-')}`);
+                        }
+                    }
+                    testContentDiv.innerHTML = nextContent.text;
+                    
+                    tempScreenplay.appendChild(testContentDiv);
+                    const contentHeight = testContentDiv.getBoundingClientRect().height;
+                    tempScreenplay.removeChild(testContentDiv);
+                    
+                    if (currentY + lineHeight + contentHeight > maxUsableHeight) {
+                        // Combined label and content exceed page: force new page
+                        const footer = document.createElement('div');
+                        footer.className = 'page-number-footer';
+                        footer.innerText = runningPageNumber;
+                        pageContainer.appendChild(footer);
+                        printContainer.appendChild(pageContainer);
+                        
+                        runningPageNumber++;
+                        
+                        pageContainer = document.createElement('div');
+                        pageContainer.className = 'page-container';
+                        pageContainer.style.setProperty('height', 'auto', 'important');
+                        pageContainer.style.setProperty('min-height', 'var(--page-height)', 'important');
+                        pageContainer.style.setProperty('max-height', 'none', 'important');
+                        pageContainer.style.setProperty('overflow', 'visible', 'important');
+                        
+                        screenplayPage = document.createElement('div');
+                        screenplayPage.className = 'screenplay-page';
+                        pageContainer.appendChild(screenplayPage);
+                        
+                        currentY = 0;
+                    }
+                }
+            }
+            
+            // 2. Normal fit check and word-splitting for long content
+            if (currentY + lineHeight > maxUsableHeight && currentY > 0) {
+                const hasHtmlTags = /<[a-z/][^>]*>/i.test(item.text);
+                
+                if (!hasHtmlTags && !item.isBr && item.text.trim()) {
+                    // Try splitting the plain text block word-by-word
+                    const remainingSpace = maxUsableHeight - currentY;
+                    const { fitText, remainingText } = splitTextAtBoundary(item.text, item.lineType, item.elementId, tempScreenplay, remainingSpace);
+                    
+                    if (fitText && remainingText) {
+                        lineDiv.innerHTML = fitText;
+                        screenplayPage.appendChild(lineDiv);
+                        
+                        // Render page footer for completed page
+                        const footer = document.createElement('div');
+                        footer.className = 'page-number-footer';
+                        footer.innerText = runningPageNumber;
+                        pageContainer.appendChild(footer);
+                        printContainer.appendChild(pageContainer);
+                        
+                        runningPageNumber++;
+                        
+                        // Create a new print page
+                        pageContainer = document.createElement('div');
+                        pageContainer.className = 'page-container';
+                        pageContainer.style.setProperty('height', 'auto', 'important');
+                        pageContainer.style.setProperty('min-height', 'var(--page-height)', 'important');
+                        pageContainer.style.setProperty('max-height', 'none', 'important');
+                        pageContainer.style.setProperty('overflow', 'visible', 'important');
+                        
+                        screenplayPage = document.createElement('div');
+                        screenplayPage.className = 'screenplay-page';
+                        pageContainer.appendChild(screenplayPage);
+                        
+                        currentY = 0;
+                        
+                        // Insert the remaining text back into queue
+                        renderItems.splice(itemIdx + 1, 0, new RenderItem(remainingText, item.elementId, item.lineType, item.originalLineIdx));
+                        continue;
+                    }
+                }
+                
+                // If it contains HTML, is a BR, or fits nothing: treat as atomic and wrap whole item to new page
+                const footer = document.createElement('div');
+                footer.className = 'page-number-footer';
+                footer.innerText = runningPageNumber;
+                pageContainer.appendChild(footer);
+                printContainer.appendChild(pageContainer);
+                
+                runningPageNumber++;
+                
+                pageContainer = document.createElement('div');
+                pageContainer.className = 'page-container';
+                pageContainer.style.setProperty('height', 'auto', 'important');
+                pageContainer.style.setProperty('min-height', 'var(--page-height)', 'important');
+                pageContainer.style.setProperty('max-height', 'none', 'important');
+                pageContainer.style.setProperty('overflow', 'visible', 'important');
+                
+                screenplayPage = document.createElement('div');
+                screenplayPage.className = 'screenplay-page';
+                pageContainer.appendChild(screenplayPage);
+                
+                currentY = 0;
+            }
+            
             screenplayPage.appendChild(lineDiv);
+            currentY += lineHeight;
         }
         
+        // Render footer for last print page of this editor page
         const footer = document.createElement('div');
         footer.className = 'page-number-footer';
-        footer.innerText = pageIdx + 1;
-        
-        pageContainer.appendChild(screenplayPage);
+        footer.innerText = runningPageNumber;
         pageContainer.appendChild(footer);
         printContainer.appendChild(pageContainer);
+        
+        runningPageNumber++;
     });
+    
+    // Clean up measurement container
+    document.body.removeChild(measureDiv);
     
     window.print();
     

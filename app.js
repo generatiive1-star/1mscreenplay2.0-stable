@@ -425,13 +425,17 @@ function saveActivePageDOM() {
     const lineDivs = editor.querySelectorAll('.sp-line');
     lineDivs.forEach((div, idx) => {
         if (idx < 50) {
-            const text = div.innerText.replace(/\n$/, ''); // Strip contenteditable trailing newline
-            pageData[idx].text = text;
-            if (text.trim() === '') {
+            const html = div.innerHTML.replace(/\n$/, ''); // Strip contenteditable trailing newline
+            const text = div.innerText.replace(/\n$/, '');
+            if (text.trim() === '' || html === '<br>' || html === '<br/>' || html === '<br/ >') {
+                pageData[idx].text = '';
                 pageData[idx].type = 'empty';
                 pageData[idx].elementId = '';
-            } else if (pageData[idx].type === 'empty') {
-                pageData[idx].type = 'user-text';
+            } else {
+                pageData[idx].text = html;
+                if (pageData[idx].type === 'empty') {
+                    pageData[idx].type = 'user-text';
+                }
             }
         }
     });
@@ -590,6 +594,14 @@ function setupEventListeners() {
             }
         }, { passive: false });
     }
+
+    // Text Style Dropdown Change Handler
+    const styleSelect = document.getElementById('select-text-style');
+    if (styleSelect) {
+        styleSelect.addEventListener('change', (e) => {
+            applyTextStyle(e.target.value);
+        });
+    }
 }
 
 // Navigation implementation
@@ -658,7 +670,7 @@ function renderActivePage() {
             if (lineData.elementId) {
                 lineDiv.classList.add(`sp-line-${lineData.elementId.replace('_', '-')}`);
             }
-            lineDiv.innerText = lineData.text;
+            lineDiv.innerHTML = lineData.text;
         } else {
             lineDiv.classList.add('sp-line-empty');
             lineDiv.innerHTML = '<br>';
@@ -1629,7 +1641,7 @@ function exportToPDF() {
                 if (lineData.elementId) {
                     lineDiv.classList.add(`sp-line-${lineData.elementId.replace('_', '-')}`);
                 }
-                lineDiv.innerText = lineData.text;
+                lineDiv.innerHTML = lineData.text;
             } else {
                 lineDiv.classList.add('sp-line-empty');
                 lineDiv.innerHTML = '<br>';
@@ -1658,7 +1670,7 @@ function exportToTXT() {
     State.pages.forEach((page, pageIdx) => {
         outputText += `=================== PAGE ${pageIdx + 1} ===================\n\n`;
         page.forEach(line => {
-            const text = line.text;
+            const text = stripHtml(line.text);
             if (line.type === 'main-term') {
                 const pad = Math.max(0, Math.floor((60 - text.length) / 2));
                 outputText += " ".repeat(pad) + text.toUpperCase() + "\n";
@@ -1688,6 +1700,13 @@ function exportToDOCX() {
             .sp-user-text { text-align: left; font-size: 12pt; font-weight: normal; margin: 0; padding: 0 4px; line-height: 14.4pt; }
             .sp-line-empty { margin: 0; padding: 0 4px; line-height: 14.4pt; height: 14.4pt; }
             .page-break { page-break-after: always; }
+            .text-style { font-family: 'Courier New', Courier, monospace; display: inline; }
+            .text-title { font-size: 48px; font-weight: bold; }
+            .text-subtitle { font-size: 36px; font-weight: 600; }
+            .text-heading { font-size: 30px; font-weight: 600; }
+            .text-subheading { font-size: 24px; font-weight: 600; }
+            .text-section { font-size: 20px; font-weight: 600; }
+            .text-subsection { font-size: 18px; font-weight: 500; }
         </style>
         </head>
         <body>
@@ -1768,4 +1787,143 @@ function zoomOut() {
 function resetZoom() {
     currentZoomIndex = ZOOM_LEVELS.indexOf(1.0);
     updateZoom();
+}
+
+// =========================================================================
+// RICH TEXT STYLING SYSTEM
+// =========================================================================
+
+let lastActiveRange = null;
+
+// Track active selection range inside screenplay editor
+document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (!range.collapsed) {
+            let container = range.commonAncestorContainer;
+            if (container.nodeType !== Node.ELEMENT_NODE) {
+                container = container.parentElement;
+            }
+            if (container && container.closest('#screenplay-editor')) {
+                lastActiveRange = range.cloneRange();
+            }
+        }
+        
+        // Update the dropdown value to match styling at the caret/selection
+        let container = range.commonAncestorContainer;
+        if (container.nodeType !== Node.ELEMENT_NODE) {
+            container = container.parentElement;
+        }
+        if (container && container.closest('#screenplay-editor')) {
+            updateStyleDropdownVal();
+        }
+    }
+});
+
+// Update style dropdown selection based on current selection/cursor position
+function updateStyleDropdownVal() {
+    const select = document.getElementById('select-text-style');
+    if (!select) return;
+    
+    const sel = window.getSelection();
+    if (!sel.rangeCount) {
+        select.value = 'body';
+        return;
+    }
+    
+    let node = sel.anchorNode;
+    if (!node) {
+        select.value = 'body';
+        return;
+    }
+    
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+        node = node.parentElement;
+    }
+    
+    const styleSpan = node.closest('.text-style');
+    if (styleSpan) {
+        const classes = styleSpan.classList;
+        for (let cls of classes) {
+            if (cls.startsWith('text-')) {
+                const styleName = cls.substring(5); // e.g. 'title', 'heading'
+                if (['title', 'subtitle', 'heading', 'subheading', 'section', 'subsection', 'body'].includes(styleName)) {
+                    select.value = styleName;
+                    return;
+                }
+            }
+        }
+    }
+    select.value = 'body';
+}
+
+// Wrap selection with styled span element
+function applyTextStyle(styleName) {
+    const sel = window.getSelection();
+    let range = null;
+    
+    if (sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
+        range = sel.getRangeAt(0);
+    } else if (lastActiveRange) {
+        range = lastActiveRange;
+    }
+    
+    if (!range) return; // No selection to style
+    
+    // Ensure the range is selected
+    sel.removeAllRanges();
+    sel.addRange(range);
+    
+    let parentLine = range.commonAncestorContainer;
+    if (parentLine.nodeType !== Node.ELEMENT_NODE) {
+        parentLine = parentLine.parentElement;
+    }
+    parentLine = parentLine.closest('.sp-line');
+    if (!parentLine) return; // Must be inside editor
+    
+    // Extract range content
+    const fragment = range.extractContents();
+    
+    // Clean up existing nested style spans inside the extracted content
+    const existingSpans = fragment.querySelectorAll('.text-style');
+    existingSpans.forEach(span => {
+        const parent = span.parentNode;
+        while (span.firstChild) {
+            parent.insertBefore(span.firstChild, span);
+        }
+        parent.removeChild(span);
+    });
+    
+    if (styleName === 'body') {
+        // Return to body text by inserting the unwrapped content directly
+        range.insertNode(fragment);
+        sel.removeAllRanges();
+        lastActiveRange = null;
+    } else {
+        // Create new styled span wrapper
+        const span = document.createElement('span');
+        span.className = `text-style text-${styleName}`;
+        span.appendChild(fragment);
+        
+        range.insertNode(span);
+        
+        // Select the newly wrapped node so selection persists
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        lastActiveRange = newRange.cloneRange();
+    }
+    
+    // Save to DOM, LocalStorage and history stack
+    saveActivePageDOM();
+    State.saveToHistory();
+}
+
+// Helper to strip HTML tags
+function stripHtml(html) {
+    const tmp = document.createElement("DIV");
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || "";
 }

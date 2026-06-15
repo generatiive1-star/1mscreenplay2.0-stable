@@ -1076,6 +1076,45 @@ kbd {
         font-size: 12pt !important;
         color: #000000 !important;
     }
+
+    /* Rich Text Styles print override */
+    .text-style {
+        font-family: var(--font-script) !important;
+        display: inline !important;
+    }
+    .text-title {
+        font-size: 48px !important;
+        font-weight: bold !important;
+    }
+    .text-subtitle {
+        font-size: 36px !important;
+        font-weight: 600 !important;
+    }
+    .text-heading {
+        font-size: 30px !important;
+        font-weight: 600 !important;
+    }
+    .text-subheading {
+        font-size: 24px !important;
+        font-weight: 600 !important;
+    }
+    .text-section {
+        font-size: 20px !important;
+        font-weight: 600 !important;
+    }
+    .text-subsection {
+        font-size: 18px !important;
+        font-weight: 500 !important;
+    }
+    .sp-line:has(.text-title),
+    .sp-line:has(.text-subtitle),
+    .sp-line:has(.text-heading),
+    .sp-line:has(.text-subheading),
+    .sp-line:has(.text-section),
+    .sp-line:has(.text-subsection) {
+        line-height: normal !important;
+        min-height: auto !important;
+    }
 }
 
 /* Project Manager Action Button Hover States */
@@ -1084,5 +1123,90 @@ kbd {
 }
 .btn-project-action.delete:hover {
     color: #ff4a4a !important;
+}
+
+/* Style Dropdown & Rich Text Styling */
+.style-dropdown-container {
+    position: relative;
+    display: inline-block;
+}
+
+.style-dropdown {
+    background-color: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    padding: 6px 30px 6px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    outline: none;
+    font-family: var(--font-ui);
+    transition: border-color 0.2s, background-color 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.style-dropdown:hover {
+    border-color: var(--accent-gold);
+    background-color: var(--bg-sidebar);
+}
+
+.style-dropdown-container::after {
+    content: "\f078"; /* fa-chevron-down */
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 10px;
+    pointer-events: none;
+}
+
+/* Rich Text Styles */
+.text-style {
+    font-family: var(--font-script);
+    display: inline;
+}
+
+.text-title {
+    font-size: 48px;
+    font-weight: bold;
+}
+
+.text-subtitle {
+    font-size: 36px;
+    font-weight: 600;
+}
+
+.text-heading {
+    font-size: 30px;
+    font-weight: 600;
+}
+
+.text-subheading {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.text-section {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.text-subsection {
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.sp-line:has(.text-title),
+.sp-line:has(.text-subtitle),
+.sp-line:has(.text-heading),
+.sp-line:has(.text-subheading),
+.sp-line:has(.text-section),
+.sp-line:has(.text-subsection) {
+    line-height: normal;
+    min-height: auto;
 }
 

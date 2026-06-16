@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1M Screenplay 2.0 - Cinematic Screenplay Builder</title>
+    <!-- Google Fonts: Inter for UI, Courier Prime for screenplay formatting -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- TOP NAVIGATION BAR -->
+        <header class="topbar">
+            <div class="brand">
+                <i class="fa-solid fa-clapperboard logo-icon"></i>
+                <h1>1M SCREENPLAY <span class="version">2.0</span></h1>
+            </div>
+            
+            <div class="project-controls">
+                <button id="btn-new" title="New Screenplay"><i class="fa-solid fa-file-plus"></i> New</button>
+                <button id="btn-open" title="Open Screenplay"><i class="fa-solid fa-folder-open"></i> Open</button>
+                <button id="btn-save" title="Save Project"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                <button id="btn-save-as" title="Save Project As"><i class="fa-solid fa-file-export"></i> Save As</button>
+                
+                <div class="recent-projects-dropdown">
+                    <button id="btn-recent-projects" class="dropdown-trigger"><i class="fa-solid fa-clock-rotate-left"></i> Recents <i class="fa-solid fa-chevron-down caret"></i></button>
+                    <div id="recent-projects-list" class="dropdown-content">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <div class="autosave-container">
+                    <span class="autosave-label">Auto Save</span>
+                    <label class="switch">
+                        <input type="checkbox" id="toggle-autosave" checked>
+                        <span class="slider round"></span>
+                    </label>
+                    <span id="save-status" class="save-status">Saved</span>
+                </div>
+            </div>
+
+            <div class="right-actions">
+                <div class="export-dropdown">
+                    <button class="btn-export dropdown-trigger"><i class="fa-solid fa-download"></i> Export <i class="fa-solid fa-chevron-down caret"></i></button>
+                    <div class="dropdown-content">
+                        <button id="export-pdf"><i class="fa-solid fa-file-pdf"></i> Export PDF</button>
+                        <button id="export-txt"><i class="fa-solid fa-file-lines"></i> Export TXT</button>
+                        <button id="export-docx"><i class="fa-solid fa-file-word"></i> Export DOCX</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-layout">
+            <!-- LEFT PANEL: SIDEBAR -->
+            <aside class="sidebar">
+                <!-- Search Elements -->
+                <div class="search-container">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="search-elements" placeholder="Search elements...">
+                </div>
+
+                <!-- Favorites Panel -->
+                <div class="sidebar-section" id="favorites-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-star section-icon"></i>
+                        <span>Favorites</span>
+                    </div>
+                    <div class="section-content" id="favorites-list">
+                        <span class="empty-text">No favorites pinned yet.</span>
+                    </div>
+                </div>
+
+                <!-- Recent Items Panel -->
+                <div class="sidebar-section" id="recent-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-clock section-icon"></i>
+                        <span>Recent Items</span>
+                    </div>
+                    <div class="section-content" id="recent-list">
+                        <span class="empty-text">No recently used elements.</span>
+                    </div>
+                </div>
+
+                <!-- Main Elements List -->
+                <div class="sidebar-section elements-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-bars-staggered section-icon"></i>
+                        <span>Screenplay Elements</span>
+                    </div>
+                    <div class="elements-list" id="screenplay-elements-list">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </aside>
+
+            <!-- RIGHT PANEL: SCREENPLAY PAGES -->
+            <section class="editor-area">
+                <!-- Page Navigation Header -->
+                <div class="page-nav-bar">
+                    <div class="left-nav">
+                        <span id="project-title" class="project-title" contenteditable="true">Untitled Screenplay</span>
+                        <span class="nav-divider">|</span>
+                        <div class="zoom-controls">
+                            <button id="btn-zoom-out" title="Zoom Out (Ctrl+-)"><i class="fa-solid fa-minus"></i></button>
+                            <span id="zoom-value" class="zoom-value-label" title="Reset Zoom (Ctrl+0)">100%</span>
+                            <button id="btn-zoom-in" title="Zoom In (Ctrl++)"><i class="fa-solid fa-plus"></i></button>
+                        </div>
+                    </div>
+                    <div class="right-nav">
+                        <button id="btn-prev-page" title="Previous Page"><i class="fa-solid fa-chevron-left"></i></button>
+                        <span class="page-indicator">
+                            Page <span id="current-page-num">1</span> of <span id="total-pages-num">1</span>
+                        </span>
+                        <button id="btn-next-page" title="Next Page"><i class="fa-solid fa-chevron-right"></i></button>
+                        
+                        <div class="goto-container">
+                            <input type="number" id="goto-page-input" min="1" placeholder="Go To">
+                            <button id="btn-goto-page">Go</button>
+                        </div>
+                        
+                        <button id="btn-new-page" class="btn-action" title="Create New Page"><i class="fa-solid fa-plus"></i> New Page</button>
+                        <button id="btn-delete-page" class="btn-action btn-danger" title="Delete Current Page"><i class="fa-solid fa-trash"></i> Delete Page</button>
+                    </div>
+                </div>
+
+                <!-- Undo/Redo & Utility bar -->
+                <div class="editor-utils">
+                    <button id="btn-undo" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i> Undo</button>
+                    <button id="btn-redo" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i> Redo</button>
+                    <span class="divider">|</span>
+                    <div class="style-dropdown-container">
+                        <select id="select-text-style" class="style-dropdown" title="Text Style">
+                            <option value="body">Body</option>
+                            <option value="title">Title</option>
+                            <option value="subtitle">Subtitle</option>
+                            <option value="heading">Heading</option>
+                            <option value="subheading">Subheading</option>
+                            <option value="section">Section</option>
+                            <option value="subsection">Subsection</option>
+                        </select>
+                    </div>
+                    <span class="divider">|</span>
+                    <span class="shortcut-tip"><kbd>Enter</kbd> for new line. Elements insert at cursor.</span>
+                </div>
+
+                <!-- Screenplay Page Frame -->
+                <div class="page-viewport">
+                    <div class="page-zoom-wrapper" id="page-zoom-wrapper">
+                        <div class="page-container" id="page-container">
+                            <!-- Single Page Canvas -->
+                            <div class="screenplay-page" id="screenplay-editor" spellcheck="true">
+                                <!-- Injected content goes here -->
+                            </div>
+                            <div class="page-number-footer" id="page-number-footer">1</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals for saving/opening project files -->
+    <div id="modal-project" class="modal">
+        <div class="modal-content">
+            <h3 id="modal-title">Open Project</h3>
+            <div id="modal-body">
+                <!-- Dynamically populated or custom forms -->
+            </div>
+            <div class="modal-footer">
+                <button id="modal-btn-confirm" class="btn-primary">Confirm</button>
+                <button id="modal-btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="print-container"></div>
+
+    <script src="jspdf.umd.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
